@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script type="text/javascript">
+       function httpGetAsync(theURL,callback){
+          var xmlHttp = new XMLHttpRequest();
+          xmlHttp.onreadystatechange = function(){
+             if (xmlHttp.readyState == 4 && xmlHttp.status==200) {
+                callback(xmlHttp.responseText);
+             }
+          }
+          xmlHttp.open("GET",theURL,true);
+          xmlHttp.send(null)
+       }
+    httpGetAsync("http://127.0.0.1:5000/store",function(response){
+          var obj = JSON.parse(response)
+          var store_list = obj.stores;
+          var n = store_list.length;
+          var listelement = "<ol>"
+
+          for (var i = 0; i<n; i++){
+             listelement += "<li>"+store_list[i].name+"</li>";
+          }
+          listelement += "</ol>";
+          document.getElementById('storeList').innerHTML = listelement;
+       }
+    );
+    </script>
+    <meta charset="UTF-8">
+    <title>Store Manifest</title>
+</head>
+<body>
+<h1>Welcome to Dave's Various Stores</h1>
+<div id = "storeList"></div>
+</body>
+</html>
