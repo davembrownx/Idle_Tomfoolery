@@ -1,32 +1,22 @@
 from flask import Flask
 from flask_restful import Api
 from flask_jwt import JWT
+from db import db
 from security import authenticate, identity
-from user import UserRegister
-from store_inventory import Store,StoreList,Item,ItemList
+from resources.user import UserRegister
+from resources.store_inventory import Store,StoreList,Item,ItemList
 
 app = Flask(__name__)
 app.secret_key = 'secret_key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATION'] = False
 api = Api(app)
 
-jwt = JWT(app,authenticate,identity)
+@app.before_first_request
+def create_tables():
+    db.create_all()
 
-#stores = [{'name':'Dave\'s Awesome Store',
-#           'items':[{'name':'Chicken Shoes',
-#                     'price': 18.99},
-#                    {'name':'Dog Polish',
-#                     'price': 4.99}
-#                   ]
-#           },
-#           {'name': 'Dave\'s Garden of Earthly Delights',
-#            'items': [{'name': 'Trout Soother',
-#                       'price': 6.99},
-#                      {'name': 'Tooth Extractor',
-#                       'price': 15.99}
-#                     ]
-#            },
-#            {'name': 'Dave', 'items':[]}
-#           ]
+jwt = JWT(app,authenticate,identity)
 
 
 api.add_resource(Store,'/<string:name>')
@@ -35,4 +25,6 @@ api.add_resource(Item,'/<string:store_name>/item/<string:item_name>')
 api.add_resource(ItemList,'/<string:name>/items')
 api.add_resource(UserRegister,'/register')
 
-app.run(debug=True)
+if __name__ == '__main__':
+    db.init_app(app)
+    app.run(debug=True)

@@ -1,46 +1,42 @@
 from flask import request
 from flask_restful import Resource, reqparse
 from flask_jwt import jwt_required
+from models.store_inventory import StoreModel, ItemModel
 import sqlite3
 
 class Store(Resource):
-    @classmethod
-    def find_store_by_name(cls,name):
-        connection = sqlite3.connect('data.db')
-        cursor = connection.cursor()
-        row = cursor.execute("select * from stores where name = ?",(name,)).fetchone()
-        connection.close()
-        return row
-
 
     @jwt_required()
     def get(self,name):
-        row = self.find_store_by_name(name)
-        if row:
-            return {"store":{"name": row[0]}}
+        store = StoreModel.find_store_by_name(name)
+        if store:
+            return {"store":{"name": store.name}}
         return {"message": "No store with name {} found.".format(name)}
 
 
     def post(self,name):
-        if self.find_store_by_name(name):
+        store = StoreModel.find_store_by_name(name)
+        if store:
             return {'message': "Store with name {} already exists".format(name)}, 400
 
+        store = StoreModel(name)
         connection = sqlite3.connect('data.db')
         cursor = connection.cursor()
-        cursor.execute("insert into stores values (?)",(name,))
+        cursor.execute("insert into stores values (?)",(store.name,))
 
         connection.commit()
         connection.close()
-        new_store = {'name': name, 'items':[]}
+        new_store = {'name': store.name, 'items':[]}
         return new_store, 201
 
     def delete(self,name):
-        if not self.find_store_by_name(name):
+        store = StoreModel.find_store_by_name(name)
+        if not store:
             return {"message": "No store with name {} found.".format(name)}
 
         connection = sqlite3.connect('data.db')
         cursor = connection.cursor()
-        cursor.execute("delete from stores where name = ?",(name,))
+        cursor.execute("delete from stores where name = ?",(store.name,))
         
         connection.commit()
         connection.close()
@@ -48,16 +44,29 @@ class Store(Resource):
 
     def put(self,name):
         data = request.get_json()
+        store = StoreModel.find_store_by_name(name)
         connection = sqlite3.connect('data.db')
         cursor = connection.cursor()
-        if not self.find_store_by_name(name):
+        if not store:
             connection = sqlite3.connect('data.db')
             cursor = connection.cursor()
             cursor.execute("insert into stores values (?)",(name,))
-            connection.commit()
-            connection.close()
+            if store.items:
+                for data_item in data['items']:
+                    item = ItemModel(data_item['name'],data_item['price'])
+                    store.insert_item(item)
 
-        return {"name": name}
+        for data_item in data['items']:
+            item = ItemModel(data_item['name'],data_item['price'])
+            item_upd = store.find_item_by_name(item.name)
+            if item_upd:
+                store.update_item(item_upd,item.price)
+            else:
+                store.insert_item(item)
+        connection.commit()
+        connection.close()
+
+        return {"name": name,"items":[{"name": x['name'],"price": x['price']} for x in data['items']]}
 
 
 class StoreList(Resource):
@@ -71,77 +80,59 @@ class StoreList(Resource):
 
 
 class Item(Resource):
-    @classmethod
-    def find_item_by_name_and_store_name(cls,store_name,item_name):
-        connection = sqlite3.connect('data.db')
-        cursor = connection.cursor()
-        query = "select * from items where store_name = ? and name = ?"
-        row = cursor.execute(query,(store_name,item_name)).fetchone()
-        connection.close()
-        return row
-
 
     def get(self,store_name,item_name):
-        if not Store.find_store_by_name(store_name):
+        store = StoreModel.find_store_by_name(store_name)
+        if not store:
             return {'message':'No store found with name '+store_name+'.'},404
 
-        row = self.find_item_by_name_and_store_name(store_name,item_name)
+        item = store.find_item_by_name(item_name)
 
 
-        if not row:
+        if not item:
             return {'message': "No items in store {} with name {}.".format(store_name,item_name)},404
 
-        return {'name':row[0] , 'price': row[1]}
+        return {'name':item.name , 'price': item.price}
 
 
     def post(self,store_name,item_name):
         data = request.get_json()
-        if not Store.find_store_by_name(store_name):
+        store = StoreModel.find_store_by_name(store_name)
+        if not store:
             return {'message':'No store found with name '+store_name+'.'},404
 
-        if self.find_item_by_name_and_store_name(store_name,item_name):
+        if store.find_item_by_name(item_name):
             return {'message': "An item with name '{0}' already exists in store {1}".format(item_name,store_name)},400
 
-        connection = sqlite3.connect('data.db')
-        cursor = connection.cursor()
-        item_add_query = "insert into items values (?,?,?)"
-        cursor.execute(item_add_query,(item_name,data['price'],store_name))
-        connection.commit()
-        connection.close()
-        new_item = {'name':item_name,'price':data['price']}
+        item = ItemModel(item_name,data['price'])
+        new_item = store.insert_item(item)
+
         return new_item, 201
 
 
     def put(self,store_name,item_name):
         data = request.get_json()
-        if not Store.find_store_by_name(store_name):
+        store = StoreModel.find_store_by_name(store_name)
+        if not store:
             return {'message':'No store found with name '+store_name+'.'},404
 
-        if self.find_item_by_name_and_store_name(store_name,item_name):
-            connection = sqlite3.connect('data.db')
-            cursor = connection.cursor()
-            item_upd_query = "update items set price = ? where name = ? and store_name = ?"
-            cursor.execute(item_upd_query,(data['price'],item_name,store_name))
-            connection.commit()
-            connection.close()
-            new_item = {'name':item_name,'price':data['price']}
-            return new_item, 201
+        if store.find_item_by_name(item_name):
+            item = store.find_item_by_name(item_name)
+            updated_item = store.update_item(item,data['price'])
+            return updated_item, 201
 
-        connection = sqlite3.connect('data.db')
-        cursor = connection.cursor()
-        item_add_query = "insert into items values (?,?,?)"
-        cursor.execute(item_add_query,(item_name,data['price'],store_name))
-        connection.commit()
-        connection.close()
-        new_item = {'name':item_name,'price':data['price']}
+        item = ItemModel(item_name,data['price'])
+        new_item = store.insert_item(store_name)
+
         return new_item, 201
 
 
     def delete(self,store_name,item_name):
-        if not Store.find_store_by_name(store_name):
+        store = StoreModel.find_store_by_name(store_name)
+        if not store:
             return {'message': "No store found with name '{}'".format(store_name)},404
 
-        if not self.find_item_by_name_and_store_name(store_name,item_name):
+        if not store.find_item_by_name(item_name):
             return {'message': "No item with name '{0}' found in store '{1}'".format(item_name,store_name)},404
 
         connection = sqlite3.connect('data.db')
@@ -154,7 +145,8 @@ class Item(Resource):
 
 class ItemList(Resource):
     def get(self,name):
-        if not Store.find_store_by_name(name):
+        store = StoreModel.find_store_by_name(name)
+        if not store:
             return {'message': 'No store found with name '+name},404
 
         connection = sqlite3.connect('data.db')
